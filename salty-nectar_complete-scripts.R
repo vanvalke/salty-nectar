@@ -1,6 +1,6 @@
-# Plant-pollinator interactions
+# Plant-pollinator interactions and sodium-enriched nectar
 # Ethan VanValkeburg, Thiago Goncalves Souza, Nathan Sanders, Paul CaraDonna
-# Updated 10/2023
+# Updated 03/2024
 
 # libraries
 library(devtools) # tools and github package import
@@ -23,6 +23,7 @@ library(plotrix) #std error and other functions
 library(ggrepel) # repel ggplot objects
 library(performance)
 
+# import dataset and exclude omitted species
 bee_obs <- readxl::read_excel("code/NaNectar_observations.xlsx") %>% # data import
   # remove extra flower species
   subset(flower.sp != "AQCO") %>%
@@ -44,6 +45,7 @@ plant_names <- as_labeller(c(
   'MECI'="Mertensia ciliata",
   'HEMU'='Heliomeris multiflora'))
 
+# create hash table for labelling plots
 plant_names_hash <- setNames(as.list(c("Delphinium barbeyi",
                                        "Erigeron speciosus",
                                        "Helianthella quinquenervis",
@@ -58,9 +60,8 @@ plant_names_hash <- setNames(as.list(c("Delphinium barbeyi",
 # treatment labels to reuse
 treatment.labels = c("Control", "+ Na")
 
-#saltycol <- c("#abafb3", "#0269c2")
+# define colors for plots
 saltycol <- c("#7e83b4", "#fbce24") # morton salt
-
 
 
 ##################
@@ -69,15 +70,25 @@ saltycol <- c("#7e83b4", "#fbce24") # morton salt
 
 # total number of visits
 sum(bee_obs$no.visits)
+
 # total number of unique visitors
 bee_obs %>% 
   filter(no.visits > 0) %>%
   nrow()
 
+# numver of Bombus visits, visitors
 no_bombus <- bee_obs %>% 
   filter(!grepl("Bombus", pollinator.sp))
 sum(no_bombus$no.visits)
 length(no_bombus$no.visits)
+
+# total visits by pollinator species
+bee_obs %>% filter(!(no.visits == 0)) %>% 
+  group_by(pollinator.sp) %>% 
+  summarise(distinct.visitors = n(),
+            total.visits = sum(no.visits)) %>% 
+  mutate(prop.visitors = distinct.visitors / sum(distinct.visitors))
+
 
 # sample size per plant
 sample_sizes <- bee_obs %>% 
@@ -107,18 +118,13 @@ bee_obs %>%
 sum_visits <- bee_obs %>% 
   group_by(flower.sp, pair.num, treatment, date, week) %>% #only ever did a single plant on a day 
   summarise(tot.visits = sum(no.visits),
+            fl.count = mean(fl.count), 
             n = n()) %>% # n() needs to be corrected to account for 0 visitors
   mutate(n = (tot.visits != 0) * n) %>%  # if there are 0 visits, then there are 0 visitors
   ungroup()
 
 ## NO. VISITS GLMM MODELS AND COMPARISONS
-# GLMM models (test poisson and the negative binomial)
-bee_glme.poisson <- glmmTMB(tot.visits ~ treatment * flower.sp + (1|pair.num), family = poisson, data = sum_visits)  
-summary(bee_glme.poisson)
-car::Anova(bee_glme.poisson, type = 3) #
-check_overdispersion(bee_glme.poisson) # overdispersed
-
-# nb is the favored model
+# GLMM models (negative binomial)
 bee_glme.nb.1 <- glmmTMB(tot.visits ~ treatment * flower.sp + treatment * week + (1|pair.num), family=nbinom2, data = sum_visits)  
 summary(bee_glme.nb.1) # no significant interaction
 car::Anova(bee_glme.nb.1, type = 2) #type = 3 for interaction term, can go to type = 2 if there is not signifigant interaction
@@ -144,8 +150,6 @@ sum_visits %>%
   summarise(mean = mean(tot.visits),
             se = sd(tot.visits/sqrt(n())))
 
-
-
 ## FIGURE 1a
 plant_counts <- bee_obs %>% 
   group_by(treatment, flower.sp, pair.num, date, week) %>% 
@@ -160,8 +164,6 @@ plant_counts <- bee_obs %>%
          flower.sp = str_replace(flower.sp, "HEMU", "Heliomeris"),
          flower.sp = str_replace(flower.sp, "ERSP", "Erigeron"))
 plant_counts
-
-
 
 # plotting for plant focus
 plant_visits <- ggplot(data = plant_counts,
@@ -200,19 +202,20 @@ plant_visits <- ggplot(data = plant_counts,
   scale_color_manual(values = saltycol) +
   scale_fill_manual(values = saltycol) +
   xlab("")+
-  ylab("Mean number of visits")+
+  ylab("Mean number of visits\n(plant perspective)")+
+  labs(subtitle = "a) Plants") +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
     axis.line = element_line(linewidth = 0.25),
     legend.position = "none",
     axis.text = element_text(size = 16),
-    axis.title = element_text(size = 18)
+    axis.title = element_text(size = 18),
+    plot.subtitle = element_text(size = 18, face = "bold")
   )
 plant_visits
 
 ## VISITATION BY POLLINATOR SPECIES
-# alternative
 bee_counts <- bee_obs %>% 
   group_by(treatment, date, flower.sp, pollinator.sp) %>% 
   summarise(no.visits = sum(no.visits)) %>% 
@@ -306,30 +309,30 @@ bombus_visits <- ggplot(data = bee_counts,
   scale_fill_manual(values = saltycol) +
   scale_y_continuous(trans='log2') +
   xlab("")+
-  ylab("Mean number of visits")+
+  ylab("Mean number of visits\n(pollinator perspective)")+
+  labs(subtitle = "b) Pollinators") +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
     axis.line = element_line(linewidth = 0.25),
     legend.position = "none",
     axis.text = element_text(size = 16),
-    axis.title = element_text(size = 18)
+    axis.title = element_text(size = 18),
+    plot.subtitle = element_text(size = 18, face = "bold")
   )
 
 bombus_visits
 
 ## FIGURE 1
-plot_grid(plant_visits, NULL, bombus_visits, ncol = 3,
-          rel_widths = c(5,0.5,5),
-          labels = c("a)", "", "b)"),
-          label_size = 18)
+figure1 <- plot_grid(plant_visits, NULL, bombus_visits, ncol = 3,
+          rel_widths = c(5,0.5,5))
           
+ggsave("Figures/figure1.png", plot = figure1, width = 13, height = 8, dpi = 300)
 
 
-
-### FIGURE 2
-
-### NMDS among plant species
+### Comparing community composition between treatments
+# FIGURE 2
+# NMDS among plant species
 # create a community matrix with each cell representaing a single week of observations
 comm_matrix <- bee_obs %>% 
   dplyr::select(flower.sp, pair.num, treatment, pollinator.sp, no.visits) %>% 
@@ -366,7 +369,7 @@ NMDS <- metaMDS(comm_matrix1, k = 2, distance = "bray")
 plot(NMDS) # preview
 
 # create final NMDS plot
-### PLOT NMDS with scores
+# PLOT NMDS with scores
 scores <- as.data.frame(scores(NMDS)$sites)
 
 #a dd columns to data frame 
@@ -374,7 +377,6 @@ scores <- as.data.frame(scores(NMDS)$sites)
 scores$flower.sp = comm_matrix$flower.sp
 scores$pair.num = comm_matrix$pair.num
 scores$treatment = comm_matrix$treatment
-#scores$week = comm_matrix$week
 
 # retrieve the variable names
 scores$combined = comm_matrix %>% 
@@ -383,18 +385,23 @@ scores$combined = comm_matrix %>%
 
 
 # plot the NMDS with ggplot
-xx = ggplot(scores, aes(x = NMDS1, y = NMDS2)) + 
+nmds_salty = ggplot(scores, aes(x = NMDS1, y = NMDS2, colour = treatment)) + 
   geom_point(aes( shape = flower.sp, colour = treatment, size = flower.sp)) + 
+  stat_ellipse() +
+  xlim(-3, 4) +
+  ylim(-2, 1.75) +
   theme(axis.text.y = element_text(colour = "black", size = 12), 
         axis.text.x = element_text(colour = "black",  size = 12), 
         legend.text = element_markdown(), 
-        legend.position = c(0.81, 0.25), 
+        legend.position = c(0.88, 0.22), 
         axis.title.y = element_text(size = 16), 
         axis.title.x = element_text( size = 16, colour = "black"), 
         legend.title = element_text(size = 12, colour = "black"), 
         panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA),
-        legend.key=element_blank()) + 
+        legend.key=element_blank(),
+        plot.subtitle = element_text(size = 18, face = "bold")) + 
   labs(x = "NMDS1", colour = "Treatment", y = "NMDS2", shape = "Plant Species")  + 
+  labs(subtitle = "a) Plants") +
   scale_colour_manual(values = saltycol, labels = c("Control", "Na-enriched")) +
   scale_shape_manual(values = c(16, 17, 15, 18), 
                      labels = c("*D. babeyi*", "*E. speciosus*", "*H. multiflora*", "*H. quinquenervis*")) +
@@ -403,7 +410,7 @@ xx = ggplot(scores, aes(x = NMDS1, y = NMDS2)) +
          shape = guide_legend(override.aes = list(size = 3)),
          color = guide_legend(override.aes = list(size = 3)))
 
-xx
+nmds_salty
 
 ## BETADISPER 
 # Multivariate homogeneity of groups dispersions (variances)
@@ -452,7 +459,7 @@ mod1$aov.tab
 
 
 
-## HURLBURT'S PROBABILITY OF INTERSPECIFIC ENCOUNTER
+## HPIE
 # for each pollinator species; compare between treatments
 bee_hpie <- bee_obs %>%
   # remove null observations
@@ -486,7 +493,6 @@ bee_hpie_1 <- bee_hpie %>%
   # Fix names
   mutate(pollinator.sp = gsub(".", " ", pollinator.sp, fixed = TRUE))
 
-#View(bee_hpie_1)
 bee_hpie_1
 
 mean(bee_hpie_1$Control)
@@ -495,33 +501,34 @@ mean(bee_hpie_1$Na)
 std.error(bee_hpie_1$Na)
 
 
-
-# Wilcox test
+# Wilcoxon rank sum and signed rank tests
 hpie_wilc <- wilcox.test(x = bee_hpie_1$Control, y = bee_hpie_1$Na, 
                          alternative = "less", paired = TRUE)
 hpie_wilc
 
-
-
-
-#library(ggalt)
+# HPIE bell plot
 bee_hpie_bell <- ggplot(bee_hpie_1, aes(y = reorder(pollinator.sp, num))) +
   geom_segment(aes(x = -0.05, xend = 0.79,
                    y = reorder(pollinator.sp, num), yend = reorder(pollinator.sp, num)),
                size = 0.5, color = "lightgrey", alpha = 0.5) +
   geom_segment(aes(x = Control, xend = Na,
                    y = reorder(pollinator.sp, num), yend = reorder(pollinator.sp, num)),
-               size = 8, lineend = "round", alpha = 0.5,
-               color = "black") +
+               size = 8, lineend = "round",
+               color = "lightgrey") +
   geom_segment(aes(x = Control, xend = Na,
                    y = reorder(pollinator.sp, num), yend = reorder(pollinator.sp, num)),
                size = 7, lineend = "round",
-               color = ifelse((bee_hpie_1$Na - bee_hpie_1$Control > 0), "darkgrey", "white")) +
+               color = ifelse((bee_hpie_1$Na - bee_hpie_1$Control > 0), "lightgrey", "white")) +
+  geom_segment(aes(x = Control, xend = Na + ifelse((Na - Control > 0), -0.03, 0.03),
+                   y = reorder(pollinator.sp, num), yend = reorder(pollinator.sp, num)),
+               size = 2,
+               arrow = arrow(length = unit(0.3, "cm")), color = "darkgrey") +
   geom_point(aes(x = Control, y = reorder(pollinator.sp, num)), size = 7, color = saltycol[1]) +
   geom_point(aes(x = Na, y = reorder(pollinator.sp, num)), size = 7, color = saltycol[2]) +
   scale_x_continuous(limits = c(-0.05, 0.79), expand = c(0,0)) +
   ylab("") +
   xlab("Probability of Interspecific Encounter") +
+  labs(subtitle = "b) Pollinators") +
   theme_bw() + 
   theme(
     panel.grid = element_blank(),
@@ -531,17 +538,18 @@ bee_hpie_bell <- ggplot(bee_hpie_1, aes(y = reorder(pollinator.sp, num))) +
     axis.text.y = element_text(face = "italic", size =12),
     axis.text.x = element_text(size = 12),
     axis.title.x = element_text(size = 14),
-    axis.ticks.y = element_blank()
+    axis.ticks.y = element_blank(),
+    plot.subtitle = element_text(size = 18, face = "bold", hjust = -0.5)
   )
 
-# FIGURE 2
+bee_hpie_bell
 
-plot_grid(xx, NULL, bee_hpie_bell, ncol = 3,
+# FIGURE 2
+figure2 <- plot_grid(xx, NULL, bee_hpie_bell, ncol = 3,
           rel_widths = c(5, 0.01, 4),
-          labels = c("a)", "", "b)"),
           label_size = 18)
 
-
+ggsave("Figures/figure2.png", plot = figure2, width = 15, height = 7, dpi = 300)
 
 ## SUPPLEMENTAL FIGURES
 ### Temporal visitation plot
@@ -649,7 +657,7 @@ visitors <- ggplot(sum_visits, aes(x = treatment, y = n, fill = treatment)) +
     axis.text.x = element_text(angle = 90, vjust = 0.5)
   )
 visitors
-####
+
 
 #### DIVERSITY FIGURES
 # create community matrix 
@@ -683,10 +691,6 @@ bee_div %>%
             simpmean = mean(simpson),
             simpse = sd(simpson)/sqrt(n()))
 
-
-
-# Plot the differences in diversiyt
-# make two plats, one for each, ad then combine.
 
 # SPecies richness
 ggrich <- ggplot(bee_div, aes(x = treatment, y = richness, fill = treatment)) +
@@ -726,18 +730,14 @@ ggsimp <- ggplot(bee_div, aes(x = treatment, y = simpson, fill = treatment)) +
 # arrange them side-by-side
 divplot <- grid.arrange(ggrich, ggsimp, ncol=2); divplot
 
-ggrich
-
 
 # Compare the diversity between the two treatments
 # comparisons of richness
-
 div_glme <- glmmTMB(richness ~ treatment + (1|pair.num), 
                     family=poisson, data = bee_div)  
 
 summary(div_glme)
 car::Anova(div_glme, type = 2) #type = 3 for interaction term, can go to type = 2 if there is not signifigant interaction
-
 AIC(div_glme)
 
 
@@ -800,8 +800,7 @@ ggsave("handling.png",
        units = "cm",
        dpi = 300)
 
-# can I do this and test if it only significant for DEBA? 
-# It isn't for both species, but there does seem to be a distinct relationship
+# Testing for only DEBA (note: multiple hypothesis testing)
 bee_obs_handling_DEBA <- bee_obs_handling %>% 
   filter(grepl("Bombus", pollinator.sp)) %>%
   filter(flower.sp != "ERSP", flower.sp != "MECI", flower.sp != "HEMU") %>% 
@@ -810,5 +809,3 @@ bee_obs_handling_DEBA <- bee_obs_handling %>%
 mod.handling <- lmer(time.on.flower ~ treatment + (1|pair.num), data = bee_obs_handling_DEBA)
 summary(mod.handling)
 car::Anova(mod.handling, type = 2)
-
-
